@@ -20,7 +20,7 @@ dependencies {
 }
 
 application {
-    mainClass = 'com.eventbookingsystem.App'
+    mainClass = 'com.eventbookingsystem.Main'
 }
 
 test {
