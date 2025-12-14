@@ -12,4 +12,6 @@ public interface UserRepository {
     Optional<User> findById(UUID userId);
 
     List<User> findAll();
+
+    List<User> findUsersWithoutBookingsInVenue(UUID venueId);
 }

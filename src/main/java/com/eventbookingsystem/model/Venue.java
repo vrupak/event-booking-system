@@ -29,8 +29,8 @@ public class Venue {
     public String getLocation() { return location; }
     public void setLocation(String location) { this.location = location; }
 
-    public int getCapacity() { return totalCapacity; }
-    public void setCapacity(int totalCapacity) { this.totalCapacity = totalCapacity; }
+    public int getTotalCapacity() { return totalCapacity; }
+    public void setTotalCapacity(int totalCapacity) { this.totalCapacity = totalCapacity; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }

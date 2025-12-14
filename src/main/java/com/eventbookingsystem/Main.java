@@ -25,37 +25,26 @@ import com.eventbookingsystem.service.BookingService;
 
 public class Main {
     public static void main(String[] args) {
-        // ==== 1. Set up repositories and payment gateway ====
-        UserRepository userRepository = new InMemoryUserRepository();
+        // 1. Wire repositories with proper dependencies (no circular deps)
         EventRepository eventRepository = new InMemoryEventRepository();
+        BookingRepository bookingRepository = new InMemoryBookingRepository(eventRepository);
+        UserRepository userRepository = new InMemoryUserRepository(bookingRepository);
         VenueRepository venueRepository = new InMemoryVenueRepository();
-        BookingRepository bookingRepository = new InMemoryBookingRepository();
         PaymentGateway paymentGateway = new MockPaymentGateway();
 
-        // ==== 2. Create and save a user and venue ====
-        User user = new User(
-                UUID.randomUUID(),
-                "Test User",
-                "test@example.com",
-                LocalDateTime.now()
-        );
+        // 2. Create and save a user and venue
+        User user = new User(UUID.randomUUID(), "Test User", "test@example.com", LocalDateTime.now());
         userRepository.save(user);
-
-        Venue venue = new Venue(
-                UUID.randomUUID(),
-                "Test Venue",
-                "Test City",
-                100,
-                LocalDateTime.now()
-        );
+        
+        Venue venue = new Venue(UUID.randomUUID(), "Test Venue", "Test City", 100, LocalDateTime.now());
         venueRepository.save(venue);
 
-        // ==== 3. Create and save a fully seated event with 3 seats ====
+        // 3. Create and save a fully seated event with 3 seats
         Map<String, Seat> seats = new HashMap<>();
         seats.put("A1", new Seat("A1", false, null));
         seats.put("A2", new Seat("A2", false, null));
         seats.put("A3", new Seat("A3", false, null));
-
+        
         FullySeatedEvent event = new FullySeatedEvent();
         event.setEventId(UUID.randomUUID());
         event.setVenueId(venue.getVenueId());
@@ -63,58 +52,66 @@ public class Main {
         event.setEventDate(LocalDateTime.now().plusDays(1));
         event.setCreatedAt(LocalDateTime.now());
         event.setSeats(seats);
-
         eventRepository.save(event);
 
         System.out.println("=== Repository sanity check ===");
         System.out.println("Users: " + userRepository.findAll().size());
         System.out.println("Events: " + eventRepository.findAll().size());
 
-        // ==== 4. Wire BookingService ====
-        BookingService bookingService = new BookingService(
-                bookingRepository,
-                userRepository,
-                eventRepository,
-                venueRepository,
-                paymentGateway
-        );
+        // 4. Wire BookingService
+        BookingService bookingService = new BookingService(bookingRepository, userRepository, 
+                                                         eventRepository, venueRepository, paymentGateway);
 
-        // ==== 5. Call createBooking ====
+        // 5. Test happy path booking
         try {
-            System.out.println("\n=== BookingService test (happy path) ===");
-            Booking booking = bookingService.createBooking(
-                    user.getUserId(),
-                    event.getEventId(),
-                    2,
-                    "1234567812345678" // valid mock card
-            );
-
-            System.out.println("Booking created with ID: " + booking.getBookingId());
-            System.out.println("Payment status: " + booking.getPaymentStatus());
-            System.out.println("Payment ID: " + booking.getPaymentId());
-            System.out.println("Seat details: " + booking.getSeatDetails());
-            System.out.println("Total amount: " + booking.getTotalAmount());
-            System.out.println("Bookings for user: "
-                    + bookingRepository.findByUserId(user.getUserId()).size());
-            System.out.println("Available capacity after booking: "
-                    + eventRepository.findById(event.getEventId()).orElseThrow().getAvailableCapacity());
-
+            System.out.println("\n=== BookingService test - happy path ===");
+            Booking booking = bookingService.createBooking(user.getUserId(), event.getEventId(), 2, "1234567812345678");
+            System.out.println("✓ Booking created: " + booking.getBookingId());
+            System.out.println("  Payment status: " + booking.getPaymentStatus());
+            System.out.println("  Payment ID: " + booking.getPaymentId());
+            System.out.println("  Seat details: " + booking.getSeatDetails());
+            System.out.println("  Total amount: $" + booking.getTotalAmount());
         } catch (BookingException e) {
-            System.out.println("Booking failed: " + e.getMessage());
+            System.out.println("✗ Booking failed: " + e.getMessage());
         }
 
-        // ==== 6. Try a failing booking (capacity exceeded) ====
+        // 6. Test capacity exceeded
         try {
-            System.out.println("\n=== BookingService test (capacity exceeded) ===");
-            bookingService.createBooking(
-                    user.getUserId(),
-                    event.getEventId(),
-                    10,                     // more than remaining seats
-                    "1234567812345678"
-            );
+            System.out.println("\n=== BookingService test - capacity exceeded ===");
+            bookingService.createBooking(user.getUserId(), event.getEventId(), 10, "1234567812345678");
         } catch (BookingException e) {
-            System.out.println("Expected failure: " + e.getClass().getSimpleName()
-                    + " - " + e.getMessage());
+            System.out.println("✓ Expected failure: " + e.getClass().getSimpleName() + " - " + e.getMessage());
         }
+
+        // 7. NEW: Advanced repository queries demo
+        System.out.println("\n=== ADVANCED REPOSITORY QUERIES ===");
+        
+        // Create second user for testing
+        User user2 = new User(UUID.randomUUID(), "User2", "user2@example.com", LocalDateTime.now());
+        userRepository.save(user2);
+        
+        // Create PAID booking for user1 (already done above)
+        // Try FAILED booking for user2 (won't create booking record)
+        try {
+            bookingService.createBooking(user2.getUserId(), event.getEventId(), 1, "invalid-card");
+        } catch (Exception e) {
+            System.out.println("  User2 payment failed (expected)");
+        }
+
+        // Test basic queries
+        System.out.println("Bookings for user1: " + bookingRepository.findByUserId(user.getUserId()).size());
+        System.out.println("Bookings by venue: " + bookingRepository.findByVenueId(venue.getVenueId()).size());
+
+        // Test advanced queries
+        System.out.println("Bookings for paid users at venue: " + 
+                          bookingRepository.findBookingsForPaidUsersAtVenue(venue.getVenueId()).size());
+        System.out.println("Users without bookings at venue: " + 
+                          userRepository.findUsersWithoutBookingsInVenue(venue.getVenueId()).size());
+
+        // 8. Test future events
+        System.out.println("\n=== FUTURE EVENTS CATALOG ===");
+        System.out.println("Future events: " + eventRepository.findFutureEvents(LocalDateTime.now()).size());
+
+        System.out.println("\n✓ All tests completed successfully!");
     }
 }

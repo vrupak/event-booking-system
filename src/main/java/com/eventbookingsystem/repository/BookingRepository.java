@@ -16,4 +16,8 @@ public interface BookingRepository {
     List<Booking> findByUserId(UUID userId);
 
     List<Booking> findByEventId(UUID eventId);
+
+    List<Booking> findByVenueId(UUID venueId);
+    
+    List<Booking> findBookingsForPaidUsersAtVenue(UUID venueId);
 }
