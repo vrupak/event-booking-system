@@ -72,44 +72,59 @@ public class BookingService {
             throw new BookingException("Event must be in the future");
         }
 
-        // 4. Check capacity BEFORE payment
-        if (!event.canAccommodateBooking(numberOfSeats)) {
-            throw new CapacityExceededException(
-                    "Event " + event.getName() +
-                            " cannot accommodate " + numberOfSeats + " seats. " +
-                            "Available: " + event.getAvailableCapacity()
+        // 3a. Load venue
+        var venue = venueRepository.findById(event.getVenueId())
+            .orElseThrow(() -> new EntityNotFoundException("Venue with ID " + event.getVenueId() + " not found."));
+
+        synchronized (event) {
+            // 4. Check capacity BEFORE payment
+            if (!event.canAccommodateBooking(numberOfSeats)) {
+                throw new CapacityExceededException(
+                        "Event " + event.getName() + " cannot accommodate " + numberOfSeats +
+                        " seats. Available: " + event.getAvailableCapacity());
+            }
+
+            // 4b. SIMPLE VENUE CAPACITY GUARD
+            int seatsAlreadyBookedAtVenueOnThatDate = bookingRepository.findByVenueId(venue.getVenueId()).stream()
+                .filter(b -> eventRepository.findById(b.getEventId())
+                        .map(e -> e.getEventDate().toLocalDate().equals(event.getEventDate().toLocalDate()))
+                        .orElse(false))
+                .mapToInt(Booking::getNumberOfSeats)
+                .sum();
+
+            if (seatsAlreadyBookedAtVenueOnThatDate + numberOfSeats > venue.getTotalCapacity()) {
+                throw new CapacityExceededException(
+                        "Venue " + venue.getName() + " cannot accommodate " + numberOfSeats +
+                        " additional seats. Total capacity: " + venue.getTotalCapacity() +
+                        ", already booked: " + seatsAlreadyBookedAtVenueOnThatDate);
+            }
+
+            // 5. Process payment through gateway
+            double amount = calculateAmount(event, numberOfSeats);
+            PaymentResult paymentResult = paymentGateway.processPayment(creditCardNumber, amount);
+            if (!paymentResult.isSuccess()) {
+                throw new PaymentFailedException("Payment failed: " + paymentResult.getFailureReason());
+            }
+
+            // 6. Create Booking entity with PAID status and reserve seats
+            Booking booking = new Booking(
+                    UUID.randomUUID(),
+                    user.getUserId(),
+                    event.getEventId(),
+                    numberOfSeats,
+                    null, // seatDetails set by reserveSeats
+                    PaymentStatus.PAID,
+                    paymentResult.getPaymentId(),
+                    LocalDateTime.now(),
+                    amount
             );
+
+            event.reserveSeats(booking);
+            bookingRepository.save(booking);
+            eventRepository.save(event);
+
+            return booking;
         }
-
-        // 5. Process payment through gateway
-        double amount = calculateAmount(event, numberOfSeats); // simple for now
-        PaymentResult paymentResult = paymentGateway.processPayment(creditCardNumber, amount);
-
-        if (!paymentResult.isSuccess()) {
-            throw new PaymentFailedException("Payment failed: " + paymentResult.getFailureReason());
-        }
-
-        // 6. Create Booking entity with PAID status and reserve seats
-        Booking booking = new Booking(
-                UUID.randomUUID(),
-                user.getUserId(),
-                event.getEventId(),
-                numberOfSeats,
-                null, // seatDetails will be set by reserveSeats
-                PaymentStatus.PAID,
-                paymentResult.getPaymentId(),
-                LocalDateTime.now(),
-                amount
-        );
-
-        event.reserveSeats(booking);
-
-        // Save booking (and optionally event if you want to persist seating changes)
-        bookingRepository.save(booking);
-        eventRepository.save(event);
-
-        // 7. Return Booking
-        return booking;
     }
 
     // For now, use a flat price per seat; can be enhanced later.

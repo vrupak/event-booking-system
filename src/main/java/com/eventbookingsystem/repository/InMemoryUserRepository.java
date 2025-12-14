@@ -8,7 +8,6 @@ import java.util.stream.Collectors;
 
 import com.eventbookingsystem.model.Booking;
 import com.eventbookingsystem.model.User;
-;
 
 public class InMemoryUserRepository implements UserRepository {
     private final ConcurrentHashMap<UUID, User> users = new ConcurrentHashMap<>();
