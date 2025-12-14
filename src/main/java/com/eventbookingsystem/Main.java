@@ -5,15 +5,14 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+import com.eventbookingsystem.exception.BookingException;
 import com.eventbookingsystem.model.Booking;
-import com.eventbookingsystem.model.Event;
 import com.eventbookingsystem.model.FullySeatedEvent;
 import com.eventbookingsystem.model.Seat;
 import com.eventbookingsystem.model.User;
 import com.eventbookingsystem.model.Venue;
 import com.eventbookingsystem.payment.MockPaymentGateway;
 import com.eventbookingsystem.payment.PaymentGateway;
-import com.eventbookingsystem.payment.PaymentResult;
 import com.eventbookingsystem.repository.BookingRepository;
 import com.eventbookingsystem.repository.EventRepository;
 import com.eventbookingsystem.repository.InMemoryBookingRepository;
@@ -22,14 +21,16 @@ import com.eventbookingsystem.repository.InMemoryUserRepository;
 import com.eventbookingsystem.repository.InMemoryVenueRepository;
 import com.eventbookingsystem.repository.UserRepository;
 import com.eventbookingsystem.repository.VenueRepository;
+import com.eventbookingsystem.service.BookingService;
 
 public class Main {
     public static void main(String[] args) {
-        // ==== 1. Set up repositories ====
+        // ==== 1. Set up repositories and payment gateway ====
         UserRepository userRepository = new InMemoryUserRepository();
         EventRepository eventRepository = new InMemoryEventRepository();
         VenueRepository venueRepository = new InMemoryVenueRepository();
         BookingRepository bookingRepository = new InMemoryBookingRepository();
+        PaymentGateway paymentGateway = new MockPaymentGateway();
 
         // ==== 2. Create and save a user and venue ====
         User user = new User(
@@ -65,54 +66,55 @@ public class Main {
 
         eventRepository.save(event);
 
-        // Fetch back from repo to confirm wiring
-        User loadedUser = userRepository.findById(user.getUserId()).orElseThrow();
-        Event loadedEvent = eventRepository.findById(event.getEventId()).orElseThrow();
+        System.out.println("=== Repository sanity check ===");
+        System.out.println("Users: " + userRepository.findAll().size());
+        System.out.println("Events: " + eventRepository.findAll().size());
 
-        System.out.println("=== Repository test ===");
-        System.out.println("Loaded user: " + loadedUser.getName() + ", " + loadedUser.getEmail());
-        System.out.println("Loaded event: " + loadedEvent.getName());
+        // ==== 4. Wire BookingService ====
+        BookingService bookingService = new BookingService(
+                bookingRepository,
+                userRepository,
+                eventRepository,
+                venueRepository,
+                paymentGateway
+        );
 
-        // ==== 4. Create a booking request for 2 seats ====
-        Booking booking = new Booking();
-        booking.setBookingId(UUID.randomUUID());
-        booking.setUserId(user.getUserId());
-        booking.setEventId(event.getEventId());
-        booking.setNumberOfSeats(2);
-        booking.setBookingDate(LocalDateTime.now());
-        booking.setTotalAmount(100.0);
+        // ==== 5. Call createBooking ====
+        try {
+            System.out.println("\n=== BookingService test (happy path) ===");
+            Booking booking = bookingService.createBooking(
+                    user.getUserId(),
+                    event.getEventId(),
+                    2,
+                    "1234567812345678" // valid mock card
+            );
 
-        System.out.println("\n=== Domain model test ===");
-        System.out.println("Available before: " + event.getAvailableCapacity());
-        System.out.println("Can accommodate 2? " + event.canAccommodateBooking(2));
+            System.out.println("Booking created with ID: " + booking.getBookingId());
+            System.out.println("Payment status: " + booking.getPaymentStatus());
+            System.out.println("Payment ID: " + booking.getPaymentId());
+            System.out.println("Seat details: " + booking.getSeatDetails());
+            System.out.println("Total amount: " + booking.getTotalAmount());
+            System.out.println("Bookings for user: "
+                    + bookingRepository.findByUserId(user.getUserId()).size());
+            System.out.println("Available capacity after booking: "
+                    + eventRepository.findById(event.getEventId()).orElseThrow().getAvailableCapacity());
 
-        event.reserveSeats(booking);
+        } catch (BookingException e) {
+            System.out.println("Booking failed: " + e.getMessage());
+        }
 
-        System.out.println("Available after: " + event.getAvailableCapacity());
-        System.out.println("Seat details: " + booking.getSeatDetails());
-
-        // Save booking to repository
-        bookingRepository.save(booking);
-        System.out.println("Total bookings for user: "
-                + bookingRepository.findByUserId(user.getUserId()).size());
-
-        // ==== 5. Test the payment gateway with the booking ====
-        PaymentGateway paymentGateway = new MockPaymentGateway();
-
-        String creditCardNumber = "1234567812345678"; // 16 digits
-        PaymentResult result = paymentGateway.processPayment(creditCardNumber, booking.getTotalAmount());
-
-        System.out.println("\n=== Payment test ===");
-        System.out.println("Payment success? " + result.isSuccess());
-        System.out.println("Payment ID: " + result.getPaymentId());
-        System.out.println("Failure reason: " + result.getFailureReason());
-
-        // ==== 6. Try a failing payment too (invalid card) ====
-        PaymentResult badResult = paymentGateway.processPayment("123", booking.getTotalAmount());
-
-        System.out.println("\n=== Payment failure test ===");
-        System.out.println("Payment success? " + badResult.isSuccess());
-        System.out.println("Payment ID: " + badResult.getPaymentId());
-        System.out.println("Failure reason: " + badResult.getFailureReason());
+        // ==== 6. Try a failing booking (capacity exceeded) ====
+        try {
+            System.out.println("\n=== BookingService test (capacity exceeded) ===");
+            bookingService.createBooking(
+                    user.getUserId(),
+                    event.getEventId(),
+                    10,                     // more than remaining seats
+                    "1234567812345678"
+            );
+        } catch (BookingException e) {
+            System.out.println("Expected failure: " + e.getClass().getSimpleName()
+                    + " - " + e.getMessage());
+        }
     }
 }
