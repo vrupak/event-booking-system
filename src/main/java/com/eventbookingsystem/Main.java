@@ -75,6 +75,19 @@ public class Main {
             System.out.println("✗ Booking failed: " + e.getMessage());
         }
 
+        // 5b. Optional: test venue total capacity guard
+        try {
+            System.out.println("\n=== BookingService test - venue capacity guard ===");
+            // Artificially set a very low venue capacity to trigger guard
+            Venue updated = new Venue(venue.getVenueId(), venue.getName(), venue.getLocation(), 2, venue.getCreatedAt());
+            venueRepository.save(updated);
+
+            bookingService.createBooking(user.getUserId(), event.getEventId(), 1, "1234567812345678");
+        } catch (BookingException e) {
+            System.out.println("✓ Expected venue capacity failure: " 
+                    + e.getClass().getSimpleName() + " - " + e.getMessage());
+        }
+
         // 6. Test capacity exceeded
         try {
             System.out.println("\n=== BookingService test - capacity exceeded ===");
@@ -94,7 +107,7 @@ public class Main {
         // Try FAILED booking for user2 (won't create booking record)
         try {
             bookingService.createBooking(user2.getUserId(), event.getEventId(), 1, "invalid-card");
-        } catch (Exception e) {
+        } catch (BookingException e) {
             System.out.println("  User2 payment failed (expected)");
         }
 

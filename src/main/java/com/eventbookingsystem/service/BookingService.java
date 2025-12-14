@@ -127,8 +127,9 @@ public class BookingService {
         }
     }
 
-    // For now, use a flat price per seat; can be enhanced later.
+    // For now, price does not depend on event, but parameter kept for future extension.
     private double calculateAmount(Event event, int numberOfSeats) {
-        return numberOfSeats * 50.0; // e.g., 50 per seat
+        // Example: could use event.getName(), event type, or venue for dynamic pricing later
+        return numberOfSeats * 50.0; // e.g., price hardcoded to $50 per seat
     }
 }
